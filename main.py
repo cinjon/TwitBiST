@@ -7,20 +7,19 @@ from application_only_auth import Client
 
 base_twitter_url = 'https://api.twitter.com/1.1/search/tweets.json'
 
-def get_status(client):
-    return client.rate_limit_status()
+#############################
+### Twitter API Functions ###
+#############################
 
-def auth():
-    CONSUMER_KEY = 'z60k8bsColkrv8Ruca0aERHvY'
-    CONSUMER_SECRET = 'LMITBL5ITgnJRZeyrsrFOVgWfoKBjeuMcln6cT31unClCKpPQg'
-    return Client(CONSUMER_KEY, CONSUMER_SECRET)
+def auth(key, secret):
+    return Client(key, secret)
 
 def get_client_request(client, query):
     # query is the query to the api, e.g. ?max_id=12345&q=%23startupschool
     return client.request(base_twitter_url + query)
 
 def get_hashtag_results(client, hashtags, count=100, **kwargs):
-    # example kwargs: since_id=None, max_id=None, since=None, until=None):
+    # example kwargs: since_id=None, max_id=None, since=None, until=None
     # since_id is an optional number representing a tweet id to start from.
     # until is an optional string rep of the date, e.g. "2012-09-01" that will be an open lower bound
     modifiers = {'result_type':'recent', 'count':str(count),
@@ -30,20 +29,7 @@ def get_hashtag_results(client, hashtags, count=100, **kwargs):
     query = '?' + '&'.join(['%s=%s' % (modifier, modifiers[modifier]) for modifier in modifiers])
     return get_client_request(client, query)
 
-def make_num_into_two_char(num):
-    str_num = str(num)
-    if len(str_num) == 1:
-        return '0' + str_num
-    return str_num
-
-def make_day(dayt, day_delta):
-    return '-'.join([str(dayt.year), make_num_into_two_char(dayt.month),
-                     make_num_into_two_char(dayt.day + day_delta)])
-
-def get_datetime_from_tweet(t):
-    return datetime.datetime.strptime(t['created_at'], '%a %b %d %H:%M:%S +0000 %Y')
-
-def get_next_tweets(client, search_metadata):
+def get_next_tweets_from_metadata(client, search_metadata):
     request = None
     if 'next_results' in search_metadata:
         request = get_client_request(client, search_metadata['next_results'])
@@ -54,65 +40,35 @@ def get_next_tweets(client, search_metadata):
         print search_metadata
     return request, None
 
-def get_all_tweets_until_end(client, hashtags, since_id, max_id, end_time):
-    # We have a since_id that's guaranteed to be a lower bound in the range
-    # API works s.t. the next_results it gives you has a max_id that you go down from
-    request = get_hashtag_results(client, hashtags, since_id=since_id, max_id=max_id)
-    tweets = request['statuses']
-    results = []
+def get_status(client):
+    return client.rate_limit_status()
 
-    # Keep adding to results until we fill up on max count groups
-    while(len(tweets) > 0 and tweets[-1]['id'] > since_id and get_datetime_from_tweet(tweets[0]) <= end_time):
-        print 'Adding from time %s to time %s' % (get_datetime_from_tweet(tweets[-1]), get_datetime_from_tweet(tweets[0]))
-        results.extend(tweets)
-        request, tweets = get_next_tweets(client, request['search_metadata'])
-        if not tweets:
-            break
+#############################
+###   Utility Functions   ###
+#############################
 
-    # Now put any remainder into results before returning it
-    if tweets:
-        extra_tweets = [tweet for tweet in tweets if tweet['id'] > since_id and get_datetime_from_tweet(tweet) <= end_time]
-        print 'From end: extending %d with %d tweets' % (len(results), len(extra_tweets))
-        print 'Extending from time %s to %s' % (get_datetime_from_tweet(extra_tweets[-1]), get_datetime_from_tweet(extra_tweets[0]))
-        results.extend(extra_tweets)
-    return results
+def get_datetime_from_tweet(t):
+    return datetime.datetime.strptime(t['created_at'], '%a %b %d %H:%M:%S +0000 %Y')
 
-def get_all_tweets_to_start(client, hashtags, max_id, start_time):
-    # Free reign to just go at it, getting tweets going down until we reach start_time
-    # We assume that the max_id is in the right range ... until the beginning of the request is not
-    request = get_hashtag_results(client, hashtags, max_id=max_id)
-    tweets = request['statuses']
-    results = []
+def is_in_range(tweet, since_id, max_id, start_time, end_time):
+    return tweet['id'] >= since_id and tweet['id'] <= max_id and get_datetime_from_tweet(tweet) >= start_time and get_datetime_from_tweet(tweet) <= end_time
 
-    # Keep adding to results until we fill up on max count groups
-    while(len(tweets) > 0 and get_datetime_from_tweet(tweets[-1]) >= start_time):
-        print 'Adding from time %s to time %s' % (get_datetime_from_tweet(tweets[-1]), get_datetime_from_tweet(tweets[0]))
-        results.extend(tweets)
-        request, tweets = get_next_tweets(client, request['search_metadata'])
-        if not tweets:
-            break
+def make_day(dayt, day_delta):
+    return '-'.join([str(dayt.year), make_num_into_two_char(dayt.month),
+                     make_num_into_two_char(dayt.day + day_delta)])
 
-    # Now put any remainder left over into results before returning it
-    if tweets:
-        extra_tweets = [tweet for tweet in tweets if get_datetime_from_tweet(tweet) >= start_time]
-        print 'From start: extending %d with %d tweets' % (len(results), len(extra_tweets))
-        print 'Extending from time %s to %s' % (get_datetime_from_tweet(extra_tweets[-1]), get_datetime_from_tweet(extra_tweets[0]))
-        results.extend(extra_tweets)
-    return results
+def make_num_into_two_char(num):
+    str_num = str(num)
+    if len(str_num) == 1:
+        return '0' + str_num
+    return str_num
 
-def get_batch_valid_tweets(tweets, start_time, end_time, start_index=0):
-    # Find the first index where the tweet time is >= start_time
-    while(start_index < len(tweets)):
-        if get_datetime_from_tweet(tweets[start_index]) >= start_time:
-            break
-        start_index += 1
-    end_index = start_index + 1
-    # Find the last index when tweet time is <= end_time
-    while(end_index < len(tweets)):
-        if get_datetime_from_tweet(tweets[end_index]) > end_time:
-            break
-        end_index += 1
-    return tweets[start_index, end_index]
+def pretty_print_request(request):
+    return json.dumps(request, sort_keys=True, indent=4, separators=(',', ':'))
+
+#############################
+###  Search and Retrieve  ###
+#############################
 
 def binary_search_tweet_times(client, start_time, end_time, hashtags):
     # {start, end}_time are datetime objects, assumed to be on same day (a conference day)
@@ -125,7 +81,7 @@ def binary_search_tweet_times(client, start_time, end_time, hashtags):
     tomorrow = make_day(start_time, 1)
 
     # Get the last from yesterday and the last from today as our start and end requests
-    # TODO: It may be that the last from yesterday don't exist.
+    # TODO: It may be that the last from yesterday doesn't exist.
     start_request = get_hashtag_results(client, hashtags, until=today)
     end_request = get_hashtag_results(client, hashtags, until=tomorrow)
     return binary_search_tweet_times_helper(
@@ -157,27 +113,65 @@ def binary_search_tweet_times_helper(client, start_time, end_time, hashtags, sin
         print "Set contained in the range"
         ret = tweets
         print 'Added from time %s to %s' % (get_datetime_from_tweet(tweets[-1]), get_datetime_from_tweet(tweets[0]))
-        ret.extend(get_all_tweets_to_start(client, hashtags, tweets[-1]['id'], start_time))
-        ret.extend(get_all_tweets_until_end(client, hashtags, tweets[0]['id'], max_id, end_time))
+        ret.extend(get_all_tweets(
+            client, hashtags, since_id, tweets[-1]['id'], start_time, end_time))
+        ret.extend(get_all_tweets(
+            client, hashtags, tweets[0]['id'], max_id, start_time, end_time))
         return ret
     elif last_tweet_time <= end_time:
         # somewhere in (first_tweet, last_tweet] is the start.
         # get everything in that range and then do get_all_tweets_until_end
         print "Set half in range, getting all until end"
         ret = get_batch_valid_tweets(tweets, start_time, end_time)
-        ret.extend(get_all_tweets_until_end(client, hashtags, tweets[0]['id'], max_id, end_time))
+        ret.extend(get_all_tweets(
+            client, hashtags, tweets[0]['id'], max_id, start_time, end_time))
         return ret
     elif last_tweet_time > end_time:
         # somewhere in [first_tweet, last_tweet) is the end.
         # get everything in that range and then do get_all_tweets_to_start
         print "Set half in range, getting all to start"
         ret = get_batch_valid_tweets(tweets, start_time, end_time)
-        ret.extend(get_all_tweets_to_start(client, hashtags, tweets[-1]['id'], start_time))
+        ret.extend(get_all_tweets(
+            client, hashtags, since_id, tweets[-1]['id'], start_time, end_time))
         return ret
     else:
         print "How did I get to else? This is an error"
         print "Start Time: %s, End Time: %s, Since ID: %s, Max ID: %s" % (start_time, end_time, since_id, max_id)
         return []
 
-def pretty_print_request(request):
-    return json.dumps(request, sort_keys=True, indent=4, separators=(',', ':'))
+def get_all_tweets(client, hashtags, since_id, max_id, start_time, end_time):
+    request = get_hashtag_results(client, hashtags, since_id=since_id, max_id=max_id)
+    tweets = request['statuses']
+    results = []
+
+    # Keep adding to results until we fill up on max count groups
+    while(len(tweets) > 0 and is_in_range(tweet, since_id, max_id, start_time, end_time)):
+        print 'Adding from time %s to time %s' % (get_datetime_from_tweet(tweets[-1]),
+                                                  get_datetime_from_tweet(tweets[0]))
+        results.extend(tweets)
+        request, tweets = get_next_tweets_from_metadata(client, request['search_metadata'])
+        if not tweets:
+            break
+
+    # Now put any remainder into results before returning it
+    if tweets:
+        extra_tweets = [tweet for tweet in tweets if is_in_range(tweet, since_id, max_id, start_time, end_time)]
+        print 'From end: extending %d with %d tweets' % (len(results), len(extra_tweets))
+        print 'Extending from time %s to %s' % (get_datetime_from_tweet(extra_tweets[-1]), get_datetime_from_tweet(extra_tweets[0]))
+        results.extend(extra_tweets)
+
+    return results
+
+def get_batch_valid_tweets(tweets, start_time, end_time, start_index=0):
+    # Find the first index where the tweet time is >= start_time
+    while(start_index < len(tweets)):
+        if get_datetime_from_tweet(tweets[start_index]) >= start_time:
+            break
+        start_index += 1
+    end_index = start_index + 1
+    # Find the last index when tweet time is <= end_time
+    while(end_index < len(tweets)):
+        if get_datetime_from_tweet(tweets[end_index]) > end_time:
+            break
+        end_index += 1
+    return tweets[start_index, end_index]
