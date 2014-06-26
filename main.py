@@ -44,10 +44,14 @@ def get_datetime_from_tweet(t):
     return datetime.datetime.strptime(t['created_at'], '%a %b %d %H:%M:%S +0000 %Y')
 
 def get_next_tweets(client, search_metadata):
+    request = None
     if 'next_results' in search_metadata:
         request = get_client_request(client, search_metadata['next_results'])
         if request:
             return request, request.get('statuses', None)
+    else:
+        print 'next_results not in search_metadata'
+        print search_metadata
     return request, None
 
 def get_all_tweets_until_end(client, hashtags, since_id, max_id, end_time):
@@ -171,7 +175,7 @@ def binary_search_tweet_times_helper(client, start_time, end_time, hashtags, sin
         ret.extend(get_all_tweets_to_start(client, hashtags, tweets[-1]['id'], start_time))
         return ret
     else:
-        print "How did I get to else?"
+        print "How did I get to else? This is an error"
         print "Start Time: %s, End Time: %s, Since ID: %s, Max ID: %s" % (start_time, end_time, since_id, max_id)
         return []
 
